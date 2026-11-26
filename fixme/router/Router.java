@@ -1,4 +1,4 @@
-package com.fortytwo.fixme.router;
+package router;
 
 import com.fortytwo.fixme.common.Client;
 import com.fortytwo.fixme.common.FIXMessage;
