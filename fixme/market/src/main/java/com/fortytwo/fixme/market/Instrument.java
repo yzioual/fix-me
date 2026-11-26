@@ -1,4 +1,4 @@
-package com.fortytwo.fixme.common;
+package com.fortytwo.fixme.market;
 
 public class Instrument {
     private final String name;

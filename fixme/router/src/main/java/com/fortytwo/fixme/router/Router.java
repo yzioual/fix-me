@@ -1,9 +1,7 @@
-package router;
+package com.fortytwo.fixme.router;
 
-import com.fortytwo.fixme.common.Client;
 import com.fortytwo.fixme.common.FIXMessage;
 import com.fortytwo.fixme.common.Utils;
-import jdk.jshell.execution.Util;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -13,14 +11,10 @@ import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class Router {
     private static Router instance = null;
-    private LinkedList<Client> clients = new LinkedList<>();
 
     private Router() {
     }

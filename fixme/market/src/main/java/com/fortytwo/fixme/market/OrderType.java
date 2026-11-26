@@ -1,4 +1,4 @@
-package com.fortytwo.fixme.common;
+package com.fortytwo.fixme.market;
 
 public enum OrderType {
     BUY, SELL
