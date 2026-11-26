@@ -38,7 +38,7 @@ public class FIXMessage {
 
         for (String pair : pairs) {
             String[] els = pair.split("=", 2);
-            if (els.length != 2) continue;
+            if (els.length != 2 || els[0].isEmpty() || els[1].isEmpty()) continue;
             result.put(els[0], els[1]);
         }
         return result;

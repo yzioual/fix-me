@@ -5,7 +5,6 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 
 public class MessageReader {
-
     private ByteBuffer headerBuffer = ByteBuffer.allocate(Integer.BYTES);
     private ByteBuffer bodyBuffer = null;
     private int expectedBodyLength = -1;
@@ -23,6 +22,9 @@ public class MessageReader {
             }
             headerBuffer.flip();
             expectedBodyLength = headerBuffer.getInt();
+            if (expectedBodyLength <= 0 || expectedBodyLength > 65536) {
+                throw new IOException("Invalid frame length: " + expectedBodyLength);
+            }
             bodyBuffer = ByteBuffer.allocate(expectedBodyLength);
             headerBuffer.clear();
         }
