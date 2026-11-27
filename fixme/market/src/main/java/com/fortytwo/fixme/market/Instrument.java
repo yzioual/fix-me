@@ -22,6 +22,10 @@ public class Instrument {
         this.isTraded = isTraded;
     }
 
+    public int getPrice() {
+        return this.price;
+    }
+
     public synchronized boolean isTraded() {
         return isTraded;
     }

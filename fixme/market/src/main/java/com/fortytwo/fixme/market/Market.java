@@ -29,7 +29,6 @@ public class Market extends Client {
         System.out.println("[Market] ready with id " + id + " (" + instruments.size() + " instruments listed)");
     }
 
-    /// Runs on the IO thread: only hand the order to the pool, never block here.
     @Override
     protected void onMessage(Map<String, String> fields) {
         if ("D".equals(fields.get("35"))) {
@@ -75,6 +74,11 @@ public class Market extends Client {
         }
         if (!instrument.isTraded()) {
             reply(brokerId, orderId, symbol, false, "instrument not traded");
+            return;
+        }
+
+        if (instrument.getPrice() != price) {
+            reply(brokerId, orderId, symbol, false, "Price provided is not adequate.");
             return;
         }
 
