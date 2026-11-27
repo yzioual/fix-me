@@ -1,11 +1,11 @@
 package com.fortytwo.fixme.market;
 
 public class Instrument {
-    private final String name;
+    public final String name;
     private final String company;
     private final String sector;
     private final int price; // in USD
-    private final int quantity; // shares
+    private int quantity; // shares
     private final boolean isTraded;
 
     public Instrument(String name,
@@ -22,8 +22,27 @@ public class Instrument {
         this.isTraded = isTraded;
     }
 
+    public synchronized boolean buy(int quantity) {
+        if (!isTraded || quantity > this.quantity) {
+            return false;
+        }
+        this.quantity -= quantity;
+        return true;
+    }
+
+    public synchronized boolean sell(int quantity) {
+        if (!isTraded) {
+            return false;
+        }
+        this.quantity += quantity;
+        return true;
+    }
+
+    public synchronized int getQuantity() {
+        return quantity;
+    }
+
     public String toString() {
-        return name + " " +  company + " " + sector + " " + price +
-                " " + quantity + " " + isTraded;
+        return name + " " +  company + " " + sector + " " + price + " " + quantity + " " + isTraded;
     }
 }

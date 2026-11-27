@@ -1,28 +1,113 @@
 package com.fortytwo.fixme.market;
 
+import com.fortytwo.fixme.common.Client;
+import com.fortytwo.fixme.common.Utils;
+
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
-import java.util.LinkedList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-// TODO Step 2: extend the new abstract common.Client and connect on Utils.MARKET_PORT
-public class Market {
-    private final String name;
-    public LinkedList<Instrument> instrumentsList;
+public class Market extends Client {
+    private static final String DEFAULT_CONFIG = "config.txt";
+    private static final int NUMBER_THREADS = 4;
 
-    public Market(String name, LinkedList<Instrument> instrumentsList) {
-        this.name = name;
-        this.instrumentsList = instrumentsList;
+    private final Map<String, Instrument> instruments;
+    private final ExecutorService pool = Executors.newFixedThreadPool(NUMBER_THREADS);
+
+    public Market(String configPath) {
+        super("Market", Utils.MARKET_PORT);
+        this.instruments = loadInstruments(configPath);
     }
 
-    /// Takes in a config file that contains Instruments and returns a list.
-    public static LinkedList<Instrument> getInstruments(String path) {
-        LinkedList<Instrument> instruments = new LinkedList<>();
-        String name;
-        String company;
-        String sector;
-        int price, quantity;
-        boolean isTraded;
+    @Override
+    protected void onIdAssigned(int id) {
+        System.out.println("[Market] ready with id " + id + " (" + instruments.size() + " instruments listed)");
+    }
+
+    @Override
+    protected void onMessage(Map<String, String> fields) {
+        if ("D".equals(fields.get("35"))) {
+            pool.submit(() -> execute(fields));
+        }
+    }
+
+    private void execute(Map<String, String> order) {
+        String brokerId = order.get("49");
+        int qty;
+        int price;
+        String orderId = order.get("11");
+        String symbol = order.get("55");
+        String side = order.get("54");
+        String qtyStr = order.get("38");
+        String priceStr = order.get("44");
+
+        if (brokerId == null) {
+            System.out.println("[Market] dropped order without sender (49): nobody to reply to");
+            return;
+        }
+        if (symbol == null || side == null || qtyStr == null || priceStr == null) {
+            reply(brokerId, orderId, symbol, false, "missing field (55, 54, 38 or 44)");
+            return;
+        }
+
+        try {
+            qty = Integer.parseInt(qtyStr);
+            price = Integer.parseInt(priceStr);
+        } catch (NumberFormatException e) {
+            reply(brokerId, orderId, symbol, false, "quantity and price must be integers");
+            return;
+        }
+        if (qty <= 0 || price <= 0) {
+            reply(brokerId, orderId, symbol, false, "quantity and price must be positive");
+            return;
+        }
+
+        Instrument instrument = instruments.get(symbol);
+        if (instrument == null) {
+            reply(brokerId, orderId, symbol, false, "instrument not listed on this market");
+            return;
+        }
+
+        boolean executed;
+        switch (side) {
+            case "1" -> executed = instrument.buy(qty);
+            case "2" -> executed = instrument.sell(qty);
+            default -> {
+                reply(brokerId, orderId, symbol, false, "invalid side (54 must be 1 or 2)");
+                return;
+            }
+        }
+
+        if (!executed) {
+            reply(brokerId, orderId, symbol, false,
+                    side.equals("1") ? "not traded or not enough quantity" : "instrument not traded");
+            return;
+        }
+        reply(brokerId, orderId, symbol, true, null);
+        System.out.println("[Market] " + symbol + " stock is now " + instrument.getQuantity());
+    }
+
+    private void reply(String brokerId, String orderId, String symbol, boolean executed, String reason) {
+        Map<String, String> report = new LinkedHashMap<>();
+        report.put("49", String.valueOf(id));
+        report.put("35", "8");
+        report.put("56", brokerId);
+        if (orderId != null) report.put("11", orderId);
+        if (symbol != null) report.put("55", symbol);
+        report.put("39", executed ? "2" : "8");
+        if (!executed) report.put("58", reason);
+        send(report);
+        System.out.println("[Market] " + (executed ? "EXECUTED" : "REJECTED") + " order " + orderId
+                + " from " + brokerId + (executed ? "" : " (" + reason + ")"));
+    }
+
+    private static Map<String, Instrument> loadInstruments(String path) {
+        Map<String, Instrument> book = new HashMap<>();
 
         try (BufferedReader reader = new BufferedReader(new FileReader(path))) {
             String line;
@@ -32,28 +117,36 @@ public class Market {
                     continue;
                 String[] parts = line.split(",");
                 if (parts.length != 6) {
-                    System.err.println("Invalid config line: " + line);
+                    System.err.println("[Market] skipping invalid config line: " + line);
                     continue;
                 }
-                name = parts[0].trim();
-                company = parts[1].trim();
-                sector = parts[2].trim();
-                price = Integer.parseInt(parts[3].trim());
-                quantity = Integer.parseInt(parts[4].trim());
-                isTraded = Boolean.parseBoolean(parts[5].trim());
-                instruments.add(new Instrument(name, company, sector, price, quantity, isTraded));
+                try {
+                    Instrument instrument = new Instrument(
+                            parts[0].trim(),
+                            parts[1].trim(),
+                            parts[2].trim(),
+                            Integer.parseInt(parts[3].trim()),
+                            Integer.parseInt(parts[4].trim()),
+                            Boolean.parseBoolean(parts[5].trim()));
+                    book.put(instrument.name, instrument);
+                } catch (NumberFormatException e) {
+                    System.err.println("[Market] skipping config line with bad number: " + line);
+                }
             }
         } catch (IOException e) {
-            System.out.println("Exception occurred " + e.getMessage());
+            System.err.println("[Market] cannot read config '" + path + "': " + e.getMessage());
         }
-
-        return instruments;
+        return book;
     }
 
-    public static void main(String[] args) {
-        String path = args.length > 0 ? args[0] : "config.txt";
-        Market market = new Market("NASDAQ", getInstruments(path));
-        System.out.println("[" + market.name + "]: loaded " + market.instrumentsList.size() + " instruments");
-        // TODO Step 2: market.start();
+    static void main(String[] args) throws InterruptedException {
+        String configPath = args.length > 0 ? args[0] : DEFAULT_CONFIG;
+        Market market = new Market(configPath);
+        if (market.instruments.isEmpty()) {
+            System.err.println("[Market] no instruments loaded from '" + configPath + "', exiting");
+            System.exit(1);
+        }
+        market.start();
+        market.awaitId();
     }
 }
