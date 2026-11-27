@@ -17,6 +17,6 @@ public class ForwardHandler extends Handler {
     public void handle(RoutedMessage routedMessage) {
         routedMessage.to.outbound.add(FIXMessage.addHeader(routedMessage.raw.getBytes(US_ASCII)));
         this.requestWrite.accept(routedMessage.to);
-        System.out.println("[Router] forwarding " + routedMessage.from.label() + " -> " + routedMessage.to.label());
+        System.out.println("[Router] forwarding " + routedMessage.from.label() + " -> " + routedMessage.to.label() + ": " + routedMessage.raw);
     }
 }

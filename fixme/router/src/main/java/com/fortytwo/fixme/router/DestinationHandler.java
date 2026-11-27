@@ -10,7 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 public class DestinationHandler extends Handler {
-    private static final String ROUTER_ID = "000000";
+    static final String ROUTER_ID = "000000";
     private final ConcurrentHashMap<Integer, Connection> routingTable;
     private final Consumer<Connection> requestWrite;
 

@@ -104,6 +104,7 @@ public class Router {
         this.routingTable.put(connection.id, connection);
 
         Map<String, String> logon = new LinkedHashMap<>();
+        logon.put("49", DestinationHandler.ROUTER_ID);
         logon.put("35", "A");
         logon.put("56", String.valueOf(connection.id));
         connection.outbound.add(FIXMessage.addHeader(FIXMessage.build(logon).getBytes(StandardCharsets.US_ASCII)));
