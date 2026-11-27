@@ -22,7 +22,7 @@ public class FIXMessage {
         return String.format("%03d", sum % 256);
     }
 
-    public static String build(LinkedHashMap<String, String> f) {
+    public static String build(Map<String, String> f) {
         StringBuilder sb = new StringBuilder();
 
         f.forEach((key, value) -> {
