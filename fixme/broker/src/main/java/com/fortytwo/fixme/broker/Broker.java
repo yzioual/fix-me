@@ -1,163 +1,111 @@
 package com.fortytwo.fixme.broker;
 
-import com.fortytwo.fixme.common.FIXMessage;
-import com.fortytwo.fixme.common.MessageReader;
-import com.fortytwo.fixme.common.PendingChange;
+import com.fortytwo.fixme.common.Client;
 import com.fortytwo.fixme.common.Utils;
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
-import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
-import java.nio.channels.SocketChannel;
-import java.util.Iterator;
-import java.util.Set;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.CountDownLatch;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Scanner;
+import java.util.concurrent.atomic.AtomicInteger;
 
-public class Broker implements Runnable {
-    private String name;
-    private long id = 0;
-    private final ConcurrentLinkedQueue<PendingChange> pendingChanges = new ConcurrentLinkedQueue<>();
-    private final ConcurrentLinkedQueue<ByteBuffer> outboundQueue = new ConcurrentLinkedQueue<>();
-    private Selector selector;
-    private SocketChannel socketChannel;
-    private final CountDownLatch readyLatch = new CountDownLatch(1);
+public class Broker extends Client {
+    private static final String USAGE =
+            "usage: buy|sell <SYMBOL> <QUANTITY> <PRICE> <MARKET_ID>   e.g. buy AAPL 10 192 100001\n"
+                    + "       quit";
 
-    public Broker(String name) {
-        this.name = name;
-    }
+    private final AtomicInteger orderSeq = new AtomicInteger(1);
 
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getName() {
-        return this.name;
-    }
-
-    public void setBrokerId(long id) {
-        this.id = id;
-    }
-
-    public void awaitReady() throws InterruptedException {
-        readyLatch.await();
-    }
-
-    public long getBrokerId() {
-        return this.id;
+    public Broker() {
+        super("Broker", Utils.BROKER_PORT);
     }
 
     @Override
-    public void run() {
-        try {
-            PendingChange change;
-            int port = Utils.BROKER_PORT;
-            this.selector = Selector.open();
-            this.socketChannel = SocketChannel.open();
-            this.socketChannel.configureBlocking(false);
-            this.socketChannel.connect(new InetSocketAddress(Utils.HOST, port));
-            System.out.println(name + " trying to connect to Router");
-            this.socketChannel.register(this.selector, SelectionKey.OP_CONNECT);
+    protected void onIdAssigned(int id) {
+        System.out.println("[Broker] ready with id " + id);
+        System.out.println(USAGE);
+    }
 
-            readyLatch.countDown();
-            while (true) {
-                while ((change = pendingChanges.poll()) != null) {
-                    if (change.type == PendingChange.Type.CHANGE_OPS) {
-                        SelectionKey key = change.channel.keyFor(selector);
-                        if (key != null && key.isValid()) key.interestOps(change.ops);
-                    }
-                }
-                if (this.selector.select() == 0) continue;
-
-                Set<SelectionKey> keys = this.selector.selectedKeys();
-                Iterator<SelectionKey> iterator = keys.iterator();
-
-                while (iterator.hasNext()) {
-                    SelectionKey key = iterator.next();
-                    if (key.isConnectable()) {
-                        SocketChannel client = (SocketChannel) key.channel();
-                        if (client.finishConnect()) {
-                            log("connected to Router successfully.");
-                            key.interestOps(SelectionKey.OP_READ);
-                            key.attach(new MessageReader());
-                        }
-                    } else if (key.isReadable()) {
-                        SocketChannel clientChannel = (SocketChannel) key.channel();
-                        MessageReader messageReader = (MessageReader) key.attachment();
-                        byte[] message;
-                        try {
-                            while ((message = messageReader.read(clientChannel)) != null) {
-                                handleMessage(message);
-                            }
-                        } catch (IOException e) {
-                            socketChannel.close();
-                            log("Connection failed due to an internal error.");
-                            return;
-                        }
-                    } else if (key.isWritable()) {
-                        SocketChannel socket = (SocketChannel) key.channel();
-                        ByteBuffer byteBuffer = this.outboundQueue.peek();
-                        if (byteBuffer != null) {
-                            socket.write(byteBuffer);
-                            if (!byteBuffer.hasRemaining()) {
-                                this.outboundQueue.poll();
-                            }
-                        }
-                        if (this.outboundQueue.isEmpty()) {
-                            key.interestOps(SelectionKey.OP_READ);
-                        }
-                    }
-                    iterator.remove();
-                }
-            }
-        } catch (IOException e) {
-            System.out.println("Connection failed due to an I/O error." + " " + e.getMessage());
+    @Override
+    protected void onMessage(Map<String, String> fields) {
+        if (!"8".equals(fields.get("35"))) {
+            System.out.println("[Broker] ignoring unexpected message: " + fields);
+            return;
         }
-    }
+        String status = fields.get("39");
+        String report = "order " + fields.get("11") + ": " + fields.get("55") + " (market " + fields.get("49") + ")";
 
-    public void send(String message) {
-        ByteBuffer byteBuffer = FIXMessage.addHeader(message.getBytes());
-        outboundQueue.add(byteBuffer);
-        pendingChanges.add(new PendingChange(PendingChange.Type.CHANGE_OPS, SelectionKey.OP_READ, this.socketChannel));
-        this.selector.wakeup();
-    }
-
-    private void handleMessage(byte[] message) {
-        FIXMessage fixMessage = new FIXMessage();
-        String[] pairs = fixMessage.getPairs(new String(message));
-        int numberOfPairs = pairs.length;
-
-        // case 1: ID message
-        if (numberOfPairs == 1 && pairs[0].startsWith("id=")) {
-            // case 1: ID message
-            log("this is an ID message coming from the Router" + new String(message));
-            log("now that I received an ID, I'm ready to make requests!");
-        } else if (numberOfPairs > 1) {
-            // case 2: Response Message coming from the Market via the Router
-            log("this is a Response coming from the Market via the Router" + new String(message));
+        if ("2".equals(status)) {
+            System.out.println("[Broker] EXECUTED " + report);
+        } else if ("8".equals(status)) {
+            System.out.println("[Broker] REJECTED " + report + " -> " + fields.get("58"));
         } else {
-            // case 3: Something is wrong, since the numberOfPairs can either be 1 or > 1
-            // < 1 is an impossible case.
-            log("Something went wrong badly!");
+            System.out.println("[Broker] unknown status '" + status + "' for " + report);
         }
     }
 
-    private void log(String message) {
-        System.out.println("[" + this.name + "]: " + message);
-    }
+    private boolean placeOrder(String line) {
+        String[] parts = line.trim().split("\\s+");
+        if (parts.length != 5) {
+            return false;
+        }
 
-    public static void main(String[] args) {
-        Broker br = new Broker("BRK1");
-        Thread selectorThread = new Thread(br);
-        selectorThread.start();
+        String side;
+        switch (parts[0].toLowerCase()) {
+            case "buy" -> side = "1";
+            case "sell" -> side = "2";
+            default -> { return false; }
+        }
+
+        String symbol = parts[1].toUpperCase();
+        if (symbol.contains("|") || symbol.contains("=")) {
+            return false;
+        }
+
         try {
-            br.awaitReady();
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            int qty = Integer.parseInt(parts[2]);
+            int price = Integer.parseInt(parts[3]);
+            int marketId = Integer.parseInt(parts[4]);
+            if (qty <= 0 || price <= 0 || marketId <= 0) {
+                return false;
+            }
+
+            String orderId = String.valueOf(orderSeq.getAndIncrement());
+            Map<String, String> order = new LinkedHashMap<>();
+            order.put("49", String.valueOf(id));
+            order.put("35", "D");
+            order.put("56", String.valueOf(marketId));
+            order.put("11", orderId);
+            order.put("55", symbol);
+            order.put("54", side);
+            order.put("38", String.valueOf(qty));
+            order.put("44", String.valueOf(price));
+            send(order);
+
+            System.out.println("[Broker] sent order " + orderId + ": " + parts[0].toLowerCase()
+                    + " " + qty + " " + symbol + " @ " + price + " to market " + marketId);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
         }
-        br.send("id=34242424|23=hello world!");
-        br.send("This something new");
+    }
+
+    static void main() throws InterruptedException {
+        Broker broker = new Broker();
+        broker.start();
+        broker.awaitId();
+
+        Scanner in = new Scanner(System.in);
+        while (in.hasNextLine()) {
+            String line = in.nextLine().trim();
+            if (line.isEmpty()) continue;
+            if (line.equalsIgnoreCase("quit")) break;
+            if (!broker.placeOrder(line)) {
+                System.out.println("[Broker] invalid command");
+                System.out.println(USAGE);
+            }
+        }
+
+        System.out.println("[Broker] bye");
+        System.exit(0);
     }
 }

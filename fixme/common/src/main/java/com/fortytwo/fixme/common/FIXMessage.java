@@ -5,7 +5,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-public class FIXMessage {
+public final class FIXMessage {
+    private FIXMessage() {}
+
     public static ByteBuffer addHeader(byte[] message) {
         ByteBuffer byteBuffer = ByteBuffer.allocate(Integer.BYTES + message.length);
         byteBuffer.putInt(message.length);
@@ -22,12 +24,9 @@ public class FIXMessage {
         return String.format("%03d", sum % 256);
     }
 
-    public static String build(Map<String, String> f) {
+    public static String build(Map<String, String> fields) {
         StringBuilder sb = new StringBuilder();
-
-        f.forEach((key, value) -> {
-            sb.append(key).append("=").append(value).append("|");
-        });
+        fields.forEach((key, value) -> sb.append(key).append('=').append(value).append('|'));
         String body = sb.toString();
         return body + "10=" + checksum(body) + "|";
     }

@@ -13,6 +13,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 
+/// Base for Broker and Market: one non-blocking connection to the router, driven by a
+/// selector on its own IO thread. Subclasses only implement the two hooks.
 public abstract class Client {
     protected final String name;
     private final int port;
@@ -45,20 +47,20 @@ public abstract class Client {
     }
 
     private void dispatch(byte[] raw) {
-      Map<String, String> fields = FIXMessage.parse(new String(raw, StandardCharsets.US_ASCII));
+        Map<String, String> fields = FIXMessage.parse(new String(raw, StandardCharsets.US_ASCII));
 
-      if ("A".equals(fields.get("35"))) {
-          try {
-              this.id = Integer.parseInt(fields.get("56")); // 56 is id - obviously :)
-              this.idLatch.countDown();
-              onIdAssigned(this.id);
-              return;
-          } catch (NumberFormatException e) {
-              System.out.println("Client got an invalid logon (id)");
-              return;
-          }
-      }
-      onMessage(fields);
+        if ("A".equals(fields.get("35"))) {
+            try {
+                this.id = Integer.parseInt(fields.get("56"));
+            } catch (NumberFormatException e) {
+                System.out.println("[" + name + "] invalid logon from router: " + fields);
+                return;
+            }
+            this.idLatch.countDown();
+            onIdAssigned(this.id);
+            return;
+        }
+        onMessage(fields);
     }
 
     protected abstract void onIdAssigned(int id);
@@ -71,7 +73,6 @@ public abstract class Client {
             this.socketChannel.configureBlocking(false);
             this.socketChannel.connect(new InetSocketAddress(Utils.HOST, port));
             this.key = this.socketChannel.register(this.selector, SelectionKey.OP_CONNECT);
-
 
             while (true) {
                 if (connected && !outbound.isEmpty()) {
@@ -103,7 +104,7 @@ public abstract class Client {
                                 dispatch(message);
                             }
                         } catch (IOException e) {
-                            System.out.println("[" + this.name + "] " +  "Router disconnected, exiting now..");
+                            System.out.println("[" + this.name + "] router disconnected, exiting");
                             System.exit(1);
                         }
                     } else if (localKey.isWritable()) {
@@ -123,7 +124,7 @@ public abstract class Client {
                 }
             }
         } catch (IOException e) {
-            System.out.println("[" + this.name + "] " + "Connection failed due to an I/O error." + " " + e.getMessage());
+            System.out.println("[" + this.name + "] cannot reach router on port " + port + ": " + e.getMessage());
             System.exit(1);
         }
     }

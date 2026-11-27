@@ -22,6 +22,10 @@ public class Instrument {
         this.isTraded = isTraded;
     }
 
+    public synchronized boolean isTraded() {
+        return isTraded;
+    }
+
     public synchronized boolean buy(int quantity) {
         if (!isTraded || quantity > this.quantity) {
             return false;
@@ -42,6 +46,7 @@ public class Instrument {
         return quantity;
     }
 
+    @Override
     public String toString() {
         return name + " " +  company + " " + sector + " " + price + " " + quantity + " " + isTraded;
     }

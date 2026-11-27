@@ -7,15 +7,18 @@ import java.nio.channels.SelectionKey;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class Connection {
-    int id;
-    boolean isBroker;
-    final MessageReader reader;
-    final ConcurrentLinkedQueue<ByteBuffer> outbound;
-    SelectionKey key;
+    final int id;
+    final boolean isBroker;
+    final MessageReader reader = new MessageReader();
+    final ConcurrentLinkedQueue<ByteBuffer> outbound = new ConcurrentLinkedQueue<>();
+    SelectionKey key; // set once in accept(); used only by the selector thread
 
-    public Connection(int id) {
+    public Connection(int id, boolean isBroker) {
         this.id = id;
-        this.reader = new MessageReader();
-        this.outbound = new ConcurrentLinkedQueue<>();
+        this.isBroker = isBroker;
+    }
+
+    String label() {
+        return (isBroker ? "Broker " : "Market ") + id;
     }
 }

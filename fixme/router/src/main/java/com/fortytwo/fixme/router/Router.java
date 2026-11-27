@@ -33,7 +33,9 @@ public class Router {
 
     private Router() {
         chain = new ChecksumHandler();
-        chain.setNext(new DestinationHandler(routingTable)).setNext(new ForwardHandler(this::requestWrite));
+        chain
+                .setNext(new DestinationHandler(routingTable, this::requestWrite))
+                .setNext(new ForwardHandler(this::requestWrite));
     }
 
     public static Router getInstance() {
@@ -52,10 +54,11 @@ public class Router {
         this.selector = Selector.open();
         this.brokerSocketChannel = openServer(Utils.BROKER_PORT);
         this.marketSocketChannel = openServer(Utils.MARKET_PORT);
-        System.out.println("[Router]: listening on [port] " + Utils.BROKER_PORT);
-        System.out.println("[Router]: listening on [port] " + Utils.MARKET_PORT);
+        System.out.println("[Router] listening on port " + Utils.BROKER_PORT + " (brokers)");
+        System.out.println("[Router] listening on port " + Utils.MARKET_PORT + " (markets)");
 
         while (true) {
+            // Workers asked to write (see requestWrite): only this thread touches selection keys.
             Connection c;
             while ((c = needsWrite.poll()) != null) {
                 SelectionKey k = c.key;
@@ -80,8 +83,8 @@ public class Router {
 
                     if (key.isValid() && key.isReadable())
                         read(key);
-                } catch (Exception e) {
-                    closeConnection(key);
+                } catch (IOException e) {
+                    closeConnection(key); // one broken client never stops the router
                 }
             }
         }
@@ -89,28 +92,23 @@ public class Router {
 
     private void accept(SelectionKey key) throws IOException {
         ServerSocketChannel serverSocketChannel = (ServerSocketChannel) key.channel();
-        SocketChannel socketChannel;
-        socketChannel = serverSocketChannel.accept();
+        SocketChannel socketChannel = serverSocketChannel.accept();
+        if (socketChannel == null) {
+            return;
+        }
         socketChannel.configureBlocking(false);
 
-        Connection connection = new Connection(nextId.getAndIncrement());
-
-        if (serverSocketChannel == this.brokerSocketChannel)
-            connection.isBroker = true;
-
+        boolean isBroker = serverSocketChannel == this.brokerSocketChannel;
+        Connection connection = new Connection(nextId.getAndIncrement(), isBroker);
         connection.key = socketChannel.register(selector, SelectionKey.OP_READ | SelectionKey.OP_WRITE, connection);
         this.routingTable.put(connection.id, connection);
-        Map<String, String> idMessage = new LinkedHashMap<>();
-        idMessage.put("35", "A");
-        idMessage.put("56", String.valueOf(connection.id));
-        String assignedId = FIXMessage.build(idMessage);
-        ByteBuffer assignedIdBytes = FIXMessage.addHeader(assignedId.getBytes(StandardCharsets.US_ASCII));
-        connection.outbound.add(assignedIdBytes);
 
-        if (connection.isBroker)
-            System.out.println("[Router]: New connection established from Broker " + connection.id);
-        else
-            System.out.println("[Router]: New connection established from Market " + connection.id);
+        Map<String, String> logon = new LinkedHashMap<>();
+        logon.put("35", "A");
+        logon.put("56", String.valueOf(connection.id));
+        connection.outbound.add(FIXMessage.addHeader(FIXMessage.build(logon).getBytes(StandardCharsets.US_ASCII)));
+
+        System.out.println("[Router] " + connection.label() + " connected");
     }
 
     private void write(SelectionKey key) throws IOException {
@@ -143,8 +141,7 @@ public class Router {
             key.cancel();
             try { key.channel().close(); } catch (IOException ignore) {}
             this.routingTable.remove(connection.id);
-            System.out.println("[Router] " + (connection.isBroker ? "Broker " :
-                    "Market ") + connection.id + " disconnected");
+            System.out.println("[Router] " + connection.label() + " disconnected");
         }
     }
 
@@ -156,7 +153,7 @@ public class Router {
         return serverSocketChannel;
     }
 
-    public static void main(String[] args) {
+    static void main(String[] args) {
         try {
             Router.getInstance().activate();
         } catch (IOException e) {

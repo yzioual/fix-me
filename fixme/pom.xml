@@ -54,6 +54,17 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-shade-plugin</artifactId>
           <version>3.6.0</version>
+          <configuration>
+            <!-- each module jar has its own manifest; the shaded jar gets a fresh one with Main-Class -->
+            <filters>
+              <filter>
+                <artifact>*:*</artifact>
+                <excludes>
+                  <exclude>META-INF/MANIFEST.MF</exclude>
+                </excludes>
+              </filter>
+            </filters>
+          </configuration>
           <executions>
             <execution>
               <phase>package</phase>
