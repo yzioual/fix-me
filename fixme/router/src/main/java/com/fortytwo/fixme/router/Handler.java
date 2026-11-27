@@ -3,21 +3,14 @@ package com.fortytwo.fixme.router;
 public abstract class Handler {
     private Handler next;
 
-    public static Handler add(Handler first, Handler... chain) {
-        Handler head = first;
-
-        for (Handler handler : chain) {
-            head.next = handler;
-            head = handler;
-        }
-
-        return first;
+    public Handler setNext(Handler n) {
+        this.next = n;
+        return n;
     }
 
-    // each handler in the chain will have the same input data
-    public abstract boolean check();
-
-    protected boolean hasNext() {
-        return next.check();
+    public void handle(RoutedMessage routedMessage) {
+        if (this.next != null) {
+            this.next.handle(routedMessage);
+        }
     }
 }
